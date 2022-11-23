@@ -1,11 +1,8 @@
 import skfdiff
 from skfdiff import Model
-import skfdiff
 import numpy as np
 from matplotlib import pyplot as plt
 from collections import defaultdict
-import holoviews as hv
-from mpl_toolkits.mplot3d import Axes3D
 from pylab import *
 import xarray
 
@@ -66,7 +63,7 @@ def conc_plot(field_vals, t_vals, k1, k2, a):
     plt.xlabel("t")
     plt.show()    
 
-def sim1d(geometry="square", tmax=2., dt=.05, unif_N=True, k1=5e6, k2=5, a = 8e5, N_val=1, n_xvals=20, plot_conc=True):
+def sim1d(geometry="square", tmax=50*1e-6, dt=.05, unif_N=True, k1=5e6, k2=5, a = 8e5, N_val=1, n_xvals=20, plot_conc=True, convection=False):
     """
     geometry: square/thin
     """
@@ -81,29 +78,47 @@ def sim1d(geometry="square", tmax=2., dt=.05, unif_N=True, k1=5e6, k2=5, a = 8e5
         ε_mask = np.arange(int(.5*len(x)*(1-ε)), int(.5*len(x)*(1+ε)))
         R[ε_mask] = 1
     bc = defaultdict(lambda: ("dirichlet"))
-    model = Model(["a*dxxR-k1*N*R+k2*C",
-                "-k1*N*R+k2*C",
-                "k1*N*R-k2*C"
-               ],
-               ["R(x)", "N(x)", "C(x)"], ["k1", "k2", "a"],
-               boundary_conditions=bc)
-    N = np.zeros(shape = x.shape) + N_val/len(x)
+
+    if convection:
+        model = Model(["a*dxxR-k1*N*R+k2*C",
+                        "-k1*N*R+k2*C+100",
+                        "k1*N*R-k2*C"
+                    ],
+                    ["R(x)", "N(x)", "C(x)"], ["k1", "k2", "a"],
+                    boundary_conditions=bc)
+
+    else:
+
+        model = Model(["a*dxxR-k1*N*R+k2*C",
+                    "-k1*N*R+k2*C",
+                    "k1*N*R-k2*C"
+                ],
+                ["R(x)", "N(x)", "C(x)"], ["k1", "k2", "a"],
+                boundary_conditions=bc)
+    
+    N = np.zeros(shape = x.shape)
+    if not convection:
+        N = N + N_val/len(x)
     C = np.zeros(shape = x.shape)
+    
     fields = model.fields_template(x=x, R=R, N=N, C=C, k1=k1, k2=k2, a=a)
     simulation = skfdiff.Simulation(model, fields, dt=dt, tmax=tmax)
     t_vals = [0]
-    R_0 = np.average(R)
+    R_0= np.average(R)
     R_current = np.inf
+    R_last = -np.inf
     field_vals = []
     field_vals.append(fields)
     last_val = np.nan
     for t, fields in simulation:
+        print(t)
         t_vals.append(t)
         field_vals.append(fields)
-        if np.allclose(R_current, R_0, rtol=dt): 
+        if np.allclose(R_current, R_last, rtol=dt): 
             print("No improvement")
             print(t, "in", int(t/dt), "steps")
             break
+        R_last = R_current
         R_current = np.average(fields.data_vars["R"])
         if R_current <= 0.5 * R_0:
             print("solution found")
@@ -112,7 +127,9 @@ def sim1d(geometry="square", tmax=2., dt=.05, unif_N=True, k1=5e6, k2=5, a = 8e5
             break
     if plot_conc:
         conc_plot(field_vals, t_vals, k1, k2, a)    
-    return field_vals, t_vals, np.nan
+    return field_vals, t_vals, last_val
+
+
 
 def sim2d(geometry="square", tmax=2., dt=.05, unif_N=True, k1=5e6, k2=5, a = 8e5, N_val=1, n_xvals=20, n_yvals = 20, plot_conc=True):
     """
@@ -141,17 +158,20 @@ def sim2d(geometry="square", tmax=2., dt=.05, unif_N=True, k1=5e6, k2=5, a = 8e5
     simulation = skfdiff.Simulation(model, fields, dt=dt, tmax=tmax)
     t_vals = [0]
     R_0 = np.average(R)
+
     R_current = np.inf
+    R_last = -np.inf
     field_vals = []
     field_vals.append(fields)
     last_val = np.nan
     for t, fields in simulation:
         t_vals.append(t)
         field_vals.append(fields)
-        if np.allclose(R_current, R_0, rtol=dt): 
+        if np.allclose(R_current, R_last, rtol=dt): 
             print("No improvement")
             print(t, "in", int(t/dt), "steps")
             break
+        R_last = R_current
         R_current = np.average(fields.data_vars["R"])
         if R_current <= 0.5 * R_0:
             print("solution found")
@@ -160,7 +180,7 @@ def sim2d(geometry="square", tmax=2., dt=.05, unif_N=True, k1=5e6, k2=5, a = 8e5
             break
     if plot_conc:
         conc_plot(field_vals, t_vals, k1, k2, a)    
-    return field_vals, t_vals, np.nan
+    return field_vals, t_vals, last_val
 
 
 
@@ -168,8 +188,8 @@ def sim3d(geometry="square", tmax=2., dt=.05, unif_N=True, k1=5e6, k2=5, a = 8e5
     """
     geometry: square/thin
     """
-    x = np.linspace(0, 0.22, n_xvals, endpoint = False)
-    y = np.linspace(0, 0.22, n_yvals, endpoint = False)
+    x = np.linspace(0, 0.44, n_xvals, endpoint = False)
+    y = np.linspace(0, 0.44, n_yvals, endpoint = False)
     z = np.linspace(0, 15e-3, n_zvals)
     R = np.zeros(shape = (len(x), len(y), len(z)))
     if geometry == "square":
@@ -193,23 +213,23 @@ def sim3d(geometry="square", tmax=2., dt=.05, unif_N=True, k1=5e6, k2=5, a = 8e5
 
     C = np.zeros(shape = (len(x), len(y), len(z)))
     fields = model.fields_template(x=x, y=y, z=z, R=R, N=N, C=C, k1=k1, k2=k2, a=a)
-    print("before sim")
     simulation = skfdiff.Simulation(model, fields, dt=dt, tmax=tmax)
-    print("after sim")
     t_vals = [0]
     R_0 = np.average(R)
     R_current = np.inf
+    R_last = -np.inf
     field_vals = []
     field_vals.append(fields)
     last_val = np.nan
     for t, fields in simulation:
-        print(t)
+    
         t_vals.append(t)
         field_vals.append(fields)
-        if np.allclose(R_current, R_0, rtol=dt): 
+        if np.allclose(R_current, R_last, rtol=dt): 
             print("No improvement")
             print(t, "in", int(t/dt), "steps")
             break
+        R_last = R_current
         R_current = np.average(fields.data_vars["R"])
         if R_current <= 0.5 * R_0:
             print("solution found")
@@ -218,11 +238,31 @@ def sim3d(geometry="square", tmax=2., dt=.05, unif_N=True, k1=5e6, k2=5, a = 8e5
             break
     if plot_conc:
         conc_plot(field_vals, t_vals, k1, k2, a)    
-    return field_vals, t_vals, np.nan
+    return field_vals, t_vals, last_val
+
+def get_times_until_transmission():
+    end_times = []
+    N_vals = np.logspace(10, -5, 24)
+    for N_val in N_vals:
+        print(N_val)
+        field_vals, t_vals, end_val = sim1d(N_val=N_val, dt=1e-6, tmax=1000*(1e-6), plot_conc=False)
+        if np.isnan(end_val):
+            end_times = end_times + [np.nan]*(len(N_vals)-len(end_times))
+            break
+        end_times.append(end_val)
+    print(end_times)
+    N_needed = N_vals[np.nanargmax(end_times)]
+    print(N_needed)
+    plt.loglog(end_times, N_vals, "r.")
+    plt.xlabel("Initial concentration of neurotransmitters")
+    plt.ylabel("$t_{\mathrm{end}}$")
+    plt.title("Time until signal. N needed:" + str(round(N_needed, 4)))
+    plt.show()
 
 def get1d_plots():
     field_vals, t_vals, end_val = sim1d(N_val=0.1, n_xvals=100, dt=1e-6)
-    R_init = field_vals[-1].data_vars["N"].to_numpy()
+    print(end_val)
+    N_init = field_vals[-1].data_vars["N"].to_numpy()
     container = xarray.concat(field_vals, dim="example")
     x = field_vals[0].x
     y = np.array([0])
@@ -230,9 +270,20 @@ def get1d_plots():
     X, Y, Z = np.meshgrid(x, y, z)
     plot_stuff(container, X, Y, Z, dim = "1d", t_indices = [0, 1, 50, 200])
 
+def get1d_convction_plots():
+    field_vals, t_vals, end_val = sim1d(N_val=0.1, n_xvals=100, dt=1e-6, convection=True)
+    N_init = field_vals[-1].data_vars["N"].to_numpy()
+    container = xarray.concat(field_vals, dim="example")
+    x = field_vals[0].x
+    y = np.array([0])
+    z = np.array([0])
+    X, Y, Z = np.meshgrid(x, y, z)
+    plot_stuff(container, X, Y, Z, dim = "1d", t_indices = [0, 1, 49])
+    
+
 def get2d_plots():
     field_vals, t_vals, end_val = sim2d(N_val=22, n_xvals=20, n_yvals=20, dt=1e-6, tmax = (1e-6)*50)
-    R_init = field_vals[-1].data_vars["N"].to_numpy()
+    N_init = field_vals[-1].data_vars["N"].to_numpy()
     container = xarray.concat(field_vals, dim="example")
     x = field_vals[0].x
     y = field_vals[0].y
@@ -242,7 +293,7 @@ def get2d_plots():
 
 def get3d_plots():
     field_vals, t_vals, end_val = sim3d(N_val=5e-2, n_xvals=20, n_yvals=20, n_zvals=5, dt=1e-6, tmax = (1e-6)*10)
-    R_init = field_vals[-1].data_vars["N"].to_numpy()
+    N_init = field_vals[-1].data_vars["N"].to_numpy()
     container = xarray.concat(field_vals, dim="example")
     x = field_vals[0].x
     y = field_vals[0].y
@@ -251,9 +302,11 @@ def get3d_plots():
     plot_stuff(container, X, Y, Z, dim = "2d", t_indices = [0, 1, 3, 4])
 
 if __name__ == "__main__":
+    #get1d_plots()
+    #get2d_plots()
+    #get3d_plots()
+    #get1d_convction_plots()
+    #get_times_until_transmission()
     get1d_plots()
-    get2d_plots()
-    get3d_plots()
-    
 
 
