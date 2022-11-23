@@ -10,7 +10,7 @@ from pylab import *
 from main import sim1d
 
 def get_N_init():
-    field_vals, t_vals, end_val = sim1d(N_val=1e4, n_xvals=1000, a=1000)
+    field_vals, t_vals, end_val = sim1d(N_val=1e4, n_xvals=1000, a=1)
     N_init = field_vals[-1].data_vars["N"].to_numpy()
     N_init = N_init + field_vals[-1].data_vars["C"].to_numpy()
     return N_init
